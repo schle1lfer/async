@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+#
+# pre-commit hook: format staged C/C++ files with clang-format
+#
+# Install by running:  ./scripts/install-hooks.sh
+# Or manually:        cp hooks/pre-commit .git/hooks/pre-commit
+#                     chmod +x .git/hooks/pre-commit
+
+set -euo pipefail
+
+# ── configuration ─────────────────────────────────────────────────────────────
+
+CLANG_FORMAT="${CLANG_FORMAT:-clang-format}"
+CLANG_FORMAT_FILE="$(git rev-parse --show-toplevel)/.clang-format"
+C_CPP_EXTENSIONS="c|cc|cpp|cxx|h|hh|hpp|hxx"
+
+# ── helpers ────────────────────────────────────────────────────────────────────
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m'  # no colour
+
+info()    { printf "${GREEN}[clang-format]${NC} %s\n" "$*"; }
+warning() { printf "${YELLOW}[clang-format]${NC} %s\n" "$*"; }
+error()   { printf "${RED}[clang-format]${NC} %s\n" "$*" >&2; }
+
+# ── pre-flight checks ──────────────────────────────────────────────────────────
+
+if ! command -v "$CLANG_FORMAT" &>/dev/null; then
+    error "clang-format not found. Install it or set CLANG_FORMAT env var."
+    error "  Ubuntu/Debian : sudo apt install clang-format"
+    error "  macOS         : brew install clang-format"
+    exit 1
+fi
+
+if [[ ! -f "$CLANG_FORMAT_FILE" ]]; then
+    warning ".clang-format not found at repo root; using clang-format defaults."
+fi
+
+# ── collect staged C/C++ files ─────────────────────────────────────────────────
+
+# List files that are Added, Copied, or Modified in the index.
+# Filter to C/C++ extensions only.
+mapfile -t STAGED_FILES < <(
+    git diff --cached --name-only --diff-filter=ACM \
+        | grep -E "\.(${C_CPP_EXTENSIONS})$" \
+        || true
+)
+
+if [[ ${#STAGED_FILES[@]} -eq 0 ]]; then
+    exit 0  # nothing to format
+fi
+
+info "Checking ${#STAGED_FILES[@]} file(s) with $($CLANG_FORMAT --version | head -1) ..."
+
+# ── format and detect changes ─────────────────────────────────────────────────
+
+REFORMATTED=()
+
+for FILE in "${STAGED_FILES[@]}"; do
+    # Work on the staged content (not the working-tree version)
+    STAGED_CONTENT=$(git show ":${FILE}")
+
+    FORMATTED_CONTENT=$(
+        echo "$STAGED_CONTENT" \
+            | "$CLANG_FORMAT" \
+                --style=file \
+                --assume-filename="$FILE"
+    )
+
+    if [[ "$STAGED_CONTENT" != "$FORMATTED_CONTENT" ]]; then
+        REFORMATTED+=("$FILE")
+
+        # Write formatted content back to the working tree …
+        echo "$FORMATTED_CONTENT" > "$FILE"
+        # … and re-stage it so the commit contains the formatted version.
+        git add "$FILE"
+
+        info "  formatted: $FILE"
+    fi
+done
+
+# ── report ─────────────────────────────────────────────────────────────────────
+
+if [[ ${#REFORMATTED[@]} -gt 0 ]]; then
+    warning "${#REFORMATTED[@]} file(s) were reformatted and re-staged."
+    warning "Review the changes with: git diff --cached"
+    warning "Then re-run: git commit"
+    # Exit non-zero so the developer can review before the commit lands.
+    exit 1
+fi
+
+info "All files are properly formatted."
+exit 0
