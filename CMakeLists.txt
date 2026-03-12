@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 project(async_worker LANGUAGES CXX)
 
 # ── Compiler settings ─────────────────────────────────────────────────────────
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)   # strict ISO C++, no GNU extensions
 
